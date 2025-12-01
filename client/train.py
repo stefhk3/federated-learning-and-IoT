@@ -6,6 +6,7 @@ import collections
 import os
 from read_data import read_data
 from fedn.utils.helpers.helpers import get_helper, save_metadata
+from models import pytorch_model
 import time
 from tqdm import tqdm
 # FEDn helper modülünü tanımlıyoruz
@@ -35,7 +36,7 @@ def np_to_weights(weights_np, model):
 
 
 
-def train(model, loss_fn, optimizer, data_path, settings):
+def train(model, data_path, settings):
     """Train loop with per-epoch logging."""
     
     print("-- RUNNING TRAINING --", flush=True)
@@ -69,26 +70,17 @@ def train(model, loss_fn, optimizer, data_path, settings):
                       leave=False)  # leave=True isterseniz çubuklar ekranda kalır
 
         for step, (x, y) in enumerate(loader, 1):
-            optimizer.zero_grad()
 
             batch_size = x.size(0)
             x = x.squeeze(1).float().to(device)
             y = y.to(device)
 
             # ---------- forward ----------
-            output = model(x)
-
-            # ---------- custom mask --------
-            input_mask = torch.zeros(batch_size, 128, dtype=torch.int32, device=device)
-            input      = torch.zeros(batch_size, 128, dtype=torch.float32, device=device)
-            atom_idx   = x[:, 70401].long().clamp_max(127)   # (B,)
-            input_mask[torch.arange(batch_size), atom_idx] = 1
-            input[torch.arange(batch_size), atom_idx] = y.squeeze()
+            model.fit(x, y)
 
             # ---------- loss / backward ----------
-            loss_val = loss_fn(output, input, input_mask)
-            loss_val.backward()
-            optimizer.step()
+            output = model(x)
+            loss_val = -1 * (y * torch.log(output) + (1 - y) * torch.log(1 - output))
 
             # ---------- logging ----------
             running_loss += loss_val.item()
@@ -143,19 +135,10 @@ if __name__ == '__main__':
     print(f"Output model: {output_model}", flush=True)
     print(f"Data path: {data_path}", flush=True)
 
-    with open('settings.yaml', 'r') as fh:
-        try:
-            settings = dict(yaml.safe_load(fh))
-        except yaml.YAMLError as e:
-            print(f"Settings file reading error: {e}", flush=True)
-            raise(e)
-
     # FEDn'nin helper sistemini kullanıyoruz
     helper = get_helper(HELPER_MODULE)
     
-    from models.pytorch_model import create_seed_model
-    
-    model, loss, optimizer = create_seed_model(settings)
+    model = pytorch_model.create_seed_model()
     print('Model created', flush=True)
     
     # Load model
@@ -168,7 +151,10 @@ if __name__ == '__main__':
         print("WARNING: Model could not be loaded, continuing with a new model", flush=True)
     
     # Training process
-    model, num_examples_trained = train(model, loss, optimizer, data_path, settings)
+    settings={}
+    settings["batch_size"]=32
+    settings["epochs"]=5
+    model, num_examples_trained = train(model, data_path, settings)
     
     # Save model
     try:
