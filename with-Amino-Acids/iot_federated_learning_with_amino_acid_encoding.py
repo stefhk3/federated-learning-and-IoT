@@ -98,7 +98,8 @@ class DistributionType(Enum):
 class ExperimentConfig:
     """Configuration for experiments"""
     # Dataset settings
-    dataset_path: str = "./dataset/Malware-Detection-Network-Traffic"
+    #dataset_path: str = "./dataset/Malware-Detection-Network-Traffic"
+    dataset_path: str = "./dataset/Malware-Detection-Network-Traffic/CTU-IoT-Malware-Capture-1-1conn.log.labeled.csv"
     test_size: float = 0.2
     val_size: float = 0.1
     
@@ -556,8 +557,16 @@ class FederatedNetwork(nn.Module):
     A multi-layer perceptron with configurable architecture.
     """
     
-    def __init__(self, input_dim: int, hidden_dims: List[int], output_dim: int):
+    def __init__(self, input_dim: int = None, hidden_dims: List[int] = None, output_dim: int = 2):
         super(FederatedNetwork, self).__init__()
+        
+        # Dynamically determine input dimension if not provided
+        if input_dim is None:
+            input_dim = 11  # Default to team's 11 features
+        
+        # If hidden_dims is empty or None, use default architecture
+        if hidden_dims is None or len(hidden_dims) == 0:
+            hidden_dims = [64, 32]
         
         layers = []
         prev_dim = input_dim
@@ -1168,6 +1177,13 @@ class IoTIntrusionDataset:
             df = pd.read_csv(data_path, delimiter='|')
         else:
             raise ValueError(f"Invalid data path: {data_path}")
+
+        MAX_SAMPLES = 5000
+        if len(df) > MAX_SAMPLES:
+            df = df.iloc[:MAX_SAMPLES].reset_index(drop=True)
+            print(f"  [TEST MODE] Using first {MAX_SAMPLES} samples only")
+
+
         
         print(f"Original dataset shape: {df.shape}")
         
@@ -1215,6 +1231,8 @@ class IoTIntrusionDataset:
         
         # Step 5: Clean data (as per team)
         df.replace('-', np.nan, inplace=True)
+        
+        
         
         # Step 6: Filter labels (as per team)
         df = df[df['label'].isin(['Malicious', 'Benign'])]
@@ -1427,6 +1445,9 @@ class ExperimentRunner:
         Returns:
             Experiment results dictionary
         """
+        actual_input_dim = X_train.shape[1]  # Get actual dimension from data
+        self.config.input_dim = actual_input_dim  # ← THIS LINE WAS MISSING!
+
         logging.info(f"Starting experiment: {experiment_name}")
         print(f"\n{'='*60}")
         print(f"EXPERIMENT: {experiment_name}")
