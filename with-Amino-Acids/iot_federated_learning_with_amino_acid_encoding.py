@@ -98,8 +98,7 @@ class DistributionType(Enum):
 class ExperimentConfig:
     """Configuration for experiments"""
     # Dataset settings
-    #dataset_path: str = "./dataset/Malware-Detection-Network-Traffic"
-    dataset_path: str = "./dataset/Malware-Detection-Network-Traffic/CTU-IoT-Malware-Capture-1-1conn.log.labeled.csv"
+    dataset_path: str = "./dataset/Malware-Detection-Network-Traffic"
     test_size: float = 0.2
     val_size: float = 0.1
     
@@ -406,37 +405,90 @@ class DataPartitioner:
         X: np.ndarray, 
         y: np.ndarray
     ) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """Partition data equally (IID distribution)."""
+        """
+        Partition data equally with STRATIFIED distribution.
+        
+        Ensures each client maintains the same class distribution as the global dataset.
+        This is critical for the 60:40 malicious/benign ratio specified by supervisors.
+        
+        Args:
+            X: Feature matrix
+            y: Labels
+            
+        Returns:
+            List of (X_client, y_client) tuples for each client with identical class ratios
+        """
         num_clients = self.config.num_clients
         n_samples = len(X)
         
-        # Shuffle indices
-        indices = np.random.permutation(n_samples)
+        # Get global class distribution
+        unique, counts = np.unique(y, return_counts=True)
+        global_ratio = dict(zip(unique.tolist(), (counts / n_samples * 100).tolist()))
         
-        # Split equally
-        partition_size = n_samples // num_clients
+        logging.info(f"Global class distribution: {global_ratio}")
+        print(f"  [STRATIFIED PARTITIONING] Global ratio: Malicious={global_ratio.get(1, 0):.1f}%, Benign={global_ratio.get(0, 0):.1f}%")
+        
+        # Use stratified sampling to maintain class distribution per client
         partitions = []
         
-        for i in range(num_clients):
-            start = i * partition_size
-            end = start + partition_size if i < num_clients - 1 else n_samples
-            client_indices = indices[start:end]
+        for client_id in range(num_clients):
+            client_indices = []
+            
+            # Sample each class separately to maintain exact ratio
+            for cls in unique:
+                cls_indices = np.where(y == cls)[0]
+                n_cls_samples = len(cls_indices) // num_clients
+                
+                # Distribute samples round-robin style for better mixing
+                start_idx = (client_id * n_cls_samples) % len(cls_indices)
+                if client_id < num_clients - 1:
+                    end_idx = ((client_id + 1) * n_cls_samples) % len(cls_indices)
+                    if start_idx < end_idx:
+                        client_indices.extend(cls_indices[start_idx:end_idx])
+                    else:
+                        # Handle wrap-around
+                        client_indices.extend(cls_indices[start_idx:])
+                        client_indices.extend(cls_indices[:end_idx])
+                else:
+                    # Last client gets remaining samples
+                    remaining = set(cls_indices) - set(client_indices)
+                    client_indices.extend(list(remaining))
+            
+            client_indices = np.array(client_indices)
+            np.random.shuffle(client_indices)
+            
             partitions.append((X[client_indices], y[client_indices]))
-        
+            
+            # Log this client's distribution
+            client_unique, client_counts = np.unique(y[client_indices], return_counts=True)
+            client_ratio = dict(zip(client_unique.tolist(), (client_counts / len(client_indices) * 100).tolist()))
+            logging.info(f"Client {client_id} distribution: {client_ratio}")
+            print(f"    Client {client_id}: Malicious={client_ratio.get(1, 0):.1f}%, Benign={client_ratio.get(0, 0):.1f}% (samples: {len(client_indices)})")
+            
         return partitions
     
     def _partition_skewed_non_iid(
         self, 
         X: np.ndarray, 
         y: np.ndarray,
-        attack_types: np.ndarray,
+        attack_types: np.ndarray = None,
         alpha: float = None
     ) -> List[Tuple[np.ndarray, np.ndarray]]:
         """
-        Partition data with skew (non-IID distribution).
+        Partition data with skew (non-IID distribution) using Dirichlet distribution.
         
-        Uses Dirichlet distribution to create skewed data distribution
-        among clients.
+        This creates realistic data heterogeneity where each client has a skewed
+        subset of the overall data distribution. The alpha parameter controls the
+        degree of skew: lower alpha = more skewed distribution.
+        
+        Args:
+            X: Feature matrix
+            y: Labels
+            attack_types: Attack type labels (for non-IID partitioning)
+            alpha: Dirichlet concentration parameter (lower = more skewed)
+            
+        Returns:
+            List of (X_client, y_client) tuples with heterogeneous distributions
         """
         if alpha is None:
             alpha = self.config.skewness_factor
@@ -448,6 +500,9 @@ class DataPartitioner:
         classes = np.unique(y)
         num_classes = len(classes)
         
+        logging.info(f"Creating SKEWED partition with alpha={alpha}")
+        print(f"  [SKEWED PARTITIONING] Dirichlet alpha={alpha} (lower = more skewed)")
+        
         # Create Dirichlet distribution for each class
         partitions = [([], []) for _ in range(num_clients)]
         
@@ -456,10 +511,11 @@ class DataPartitioner:
             np.random.shuffle(cls_indices)
             
             # Dirichlet distribution for class allocation
+            # Lower alpha = more extreme proportions (more skew)
             proportions = np.random.dirichlet([alpha] * num_clients)
             cls_proportions = (proportions * len(cls_indices)).astype(int)
             
-            # Adjust for rounding
+            # Adjust for rounding to ensure all samples are allocated
             diff = len(cls_indices) - cls_proportions.sum()
             cls_proportions[0] += diff
             
@@ -473,10 +529,19 @@ class DataPartitioner:
                     partitions[client_id][1].extend(y[client_indices])
                     current = end
         
-        # Convert to numpy arrays
+        # Convert to numpy arrays and log client distributions
         result = []
-        for X_client, y_client in partitions:
-            result.append((np.array(X_client), np.array(y_client)))
+        for client_id, (X_client, y_client) in enumerate(partitions):
+            X_arr = np.array(X_client)
+            y_arr = np.array(y_client)
+            result.append((X_arr, y_arr))
+            
+            # Log client distribution
+            if len(y_arr) > 0:
+                unique, counts = np.unique(y_arr, return_counts=True)
+                client_ratio = dict(zip(unique.tolist(), (counts / len(y_arr) * 100).tolist()))
+                logging.info(f"Client {client_id} SKEWED distribution: {client_ratio}")
+                print(f"    Client {client_id}: Malicious={client_ratio.get(1, 0):.1f}%, Benign={client_ratio.get(0, 0):.1f}% (samples: {len(y_arr)})")
         
         return result
     
@@ -557,16 +622,8 @@ class FederatedNetwork(nn.Module):
     A multi-layer perceptron with configurable architecture.
     """
     
-    def __init__(self, input_dim: int = None, hidden_dims: List[int] = None, output_dim: int = 2):
+    def __init__(self, input_dim: int, hidden_dims: List[int], output_dim: int):
         super(FederatedNetwork, self).__init__()
-        
-        # Dynamically determine input dimension if not provided
-        if input_dim is None:
-            input_dim = 11  # Default to team's 11 features
-        
-        # If hidden_dims is empty or None, use default architecture
-        if hidden_dims is None or len(hidden_dims) == 0:
-            hidden_dims = [64, 32]
         
         layers = []
         prev_dim = input_dim
@@ -1177,13 +1234,6 @@ class IoTIntrusionDataset:
             df = pd.read_csv(data_path, delimiter='|')
         else:
             raise ValueError(f"Invalid data path: {data_path}")
-
-        MAX_SAMPLES = 5000
-        if len(df) > MAX_SAMPLES:
-            df = df.iloc[:MAX_SAMPLES].reset_index(drop=True)
-            print(f"  [TEST MODE] Using first {MAX_SAMPLES} samples only")
-
-
         
         print(f"Original dataset shape: {df.shape}")
         
@@ -1231,8 +1281,6 @@ class IoTIntrusionDataset:
         
         # Step 5: Clean data (as per team)
         df.replace('-', np.nan, inplace=True)
-        
-        
         
         # Step 6: Filter labels (as per team)
         df = df[df['label'].isin(['Malicious', 'Benign'])]
@@ -1445,9 +1493,6 @@ class ExperimentRunner:
         Returns:
             Experiment results dictionary
         """
-        actual_input_dim = X_train.shape[1]  # Get actual dimension from data
-        self.config.input_dim = actual_input_dim  # ← THIS LINE WAS MISSING!
-
         logging.info(f"Starting experiment: {experiment_name}")
         print(f"\n{'='*60}")
         print(f"EXPERIMENT: {experiment_name}")
@@ -1839,7 +1884,8 @@ def main():
         
         # Apply amino acid encoding to features
         print("\nApplying amino acid encoding to features...")
-        logging.info(f"  Features being encoded: {X.shape[1]}")        
+        logging.info(f"  Features being encoded: {X.shape[1]}")
+        
         encoded_features = []
         for i in range(len(X)):
             row = X[i]
@@ -1854,7 +1900,7 @@ def main():
             encoded_features.append(list(props.values()))
             
             if (i + 1) % 1000 == 0:
-                            logging.info(f"  Processed {i + 1}/{len(X)} samples...")
+                logging.info(f"  Processed {i + 1}/{len(X)} samples...")
         
         X_encoded = np.array(encoded_features, dtype=np.float32)
         
@@ -1884,8 +1930,10 @@ def main():
         print(f"  Test samples: {len(X_test)}")
         print(f"  Encoded features: {X_train.shape[1]}")
         print(f"  Original features: {X_train_original.shape[1]}")
-        attack_type_count = len(np.unique([str(x) for x in attack_types])) if attack_types is not None else 0 
-        print(f"  Attack types: {attack_type_count}")        
+        # Handle mixed types (float/string) in attack_types
+        attack_type_count = len(np.unique([str(x) for x in attack_types])) if attack_types is not None else 0
+        print(f"  Attack types: {attack_type_count}")
+        
         # Store both encoded and non-encoded versions
         datasets = {
             'amino_acid': (X_train, X_test, y_train, y_test),
