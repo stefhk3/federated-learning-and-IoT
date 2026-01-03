@@ -7,6 +7,15 @@ This module provides a FEDn-compatible client implementation that integrates
 with the amino acid encoding framework for IoT intrusion detection.
 
 Compatible with FEDn 1.x and supports custom model aggregation strategies.
+This file works alongside the main federated learning script:
+iot_federated_learning_with_amino_acid_encoding.py
+
+Usage:
+    - For simulation mode: Use the main script directly
+    - For FEDn deployment: Use this client with FEDn framework
+
+Authors: Thaer Al Ibaisi, Stefan Kuhn, Muhammad Kazim
+Institution: DMU / UT
 """
 
 import os
@@ -30,7 +39,7 @@ from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-# Import amino acid encoding
+# Import amino acid encoding and experiment configuration from main script
 from iot_federated_learning_with_amino_acid_encoding import (
     AminoAcidEncoder,
     ExperimentConfig,
@@ -44,12 +53,17 @@ class FednCompatibleClient:
     
     Implements the FEDn client interface for integration with FEDn
     federated learning platform.
+    
+    Note: This class is designed for FEDn framework deployment.
+    For simulation mode, use FederatedClient from the main script instead.
     """
     
     def __init__(
         self, 
-        client_id: str,
+        client_id: int,
         config: ExperimentConfig,
+        X_train: np.ndarray = None,
+        y_train: np.ndarray = None,
         data_path: str = None
     ):
         self.client_id = client_id
@@ -57,7 +71,7 @@ class FednCompatibleClient:
         self.data_path = data_path
         
         # Setup paths
-        self.model_path = f"./models/{client_id}"
+        self.model_path = f"./models/client_{client_id}"
         Path(self.model_path).mkdir(parents=True, exist_ok=True)
         
         # Initialize model
@@ -73,6 +87,9 @@ class FednCompatibleClient:
             lr=config.learning_rate
         )
         
+        # Loss function
+        self.criterion = nn.CrossEntropyLoss()
+        
         # Training history
         self.train_history = {
             'loss': [],
@@ -82,10 +99,15 @@ class FednCompatibleClient:
         
         # Data loaders
         self.train_loader = None
-        self.test_loader = None
+        self.X_train = X_train
+        self.y_train = y_train
         
         # Setup logging
         self._setup_logging()
+        
+        # Load data if provided
+        if X_train is not None and y_train is not None:
+            self._prepare_data_loader(X_train, y_train)
     
     def _setup_logging(self):
         """Setup client-specific logging."""
@@ -113,20 +135,12 @@ class FednCompatibleClient:
             self.logger.addHandler(fh)
             self.logger.addHandler(ch)
     
-    def load_data(self, data: Tuple[np.ndarray, np.ndarray]):
-        """
-        Load and prepare data for training.
+    def _prepare_data_loader(self, X: np.ndarray, y: np.ndarray):
+        """Prepare data loader from numpy arrays."""
+        X_tensor = torch.FloatTensor(X)
+        y_tensor = torch.LongTensor(y)
         
-        Args:
-            data: Tuple of (X, y) arrays
-        """
-        X, y = data
-        
-        # Create dataset and dataloader
-        dataset = TensorDataset(
-            torch.FloatTensor(X),
-            torch.LongTensor(y)
-        )
+        dataset = TensorDataset(X_tensor, y_tensor)
         
         self.train_loader = DataLoader(
             dataset,
@@ -136,6 +150,18 @@ class FednCompatibleClient:
         )
         
         self.logger.info(f"Loaded {len(X)} samples for training")
+        self.X_train = X
+        self.y_train = y
+    
+    def load_data(self, data: Tuple[np.ndarray, np.ndarray]):
+        """
+        Load and prepare data for training.
+        
+        Args:
+            data: Tuple of (X, y) arrays
+        """
+        X, y = data
+        self._prepare_data_loader(X, y)
     
     def get_model_weights(self) -> Dict[str, np.ndarray]:
         """
@@ -161,6 +187,43 @@ class FednCompatibleClient:
                 torch.from_numpy(weight)
             )
     
+    def train_local(self, num_epochs: int = None) -> float:
+        """
+        Perform local training on client data.
+        Compatible with main script's FederatedClient interface.
+        
+        Args:
+            num_epochs: Number of local epochs (uses config if None)
+            
+        Returns:
+            Average training loss
+        """
+        if num_epochs is None:
+            num_epochs = self.config.local_epochs
+        
+        if self.train_loader is None:
+            raise ValueError("No training data loaded. Call load_data() first.")
+        
+        self.model.train()
+        total_loss = 0.0
+        n_samples = 0
+        
+        for epoch in range(num_epochs):
+            for batch_X, batch_y in self.train_loader:
+                batch_X = batch_X.to(self.config.device)
+                batch_y = batch_y.to(self.config.device)
+                
+                self.optimizer.zero_grad()
+                outputs = self.model(batch_X)
+                loss = self.criterion(outputs, batch_y)
+                loss.backward()
+                self.optimizer.step()
+                
+                total_loss += loss.item() * len(batch_y)
+                n_samples += len(batch_y)
+        
+        return total_loss / n_samples if n_samples > 0 else 0.0
+    
     def train(
         self, 
         epochs: int = None,
@@ -184,7 +247,6 @@ class FednCompatibleClient:
         
         self.model.train()
         
-        criterion = nn.CrossEntropyLoss()
         total_loss = 0.0
         correct = 0
         total = 0
@@ -200,7 +262,7 @@ class FednCompatibleClient:
                 
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
-                loss = criterion(outputs, batch_y)
+                loss = self.criterion(outputs, batch_y)
                 loss.backward()
                 self.optimizer.step()
                 
@@ -302,6 +364,12 @@ class FednCompatibleClient:
         
         return metrics
     
+    def get_sample_count(self) -> int:
+        """Get number of training samples."""
+        if self.X_train is not None:
+            return len(self.X_train)
+        return 0
+    
     def save_model(self, path: str = None):
         """
         Save model to file.
@@ -315,7 +383,8 @@ class FednCompatibleClient:
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'train_history': self.train_history
+            'train_history': self.train_history,
+            'client_id': self.client_id
         }, path)
         
         self.logger.info(f"Model saved to {path}")
@@ -368,6 +437,26 @@ class FednAggregator:
         # Setup logging
         self.logger = logging.getLogger("Aggregator")
         self.logger.setLevel(logging.INFO)
+        
+        # Setup logging handlers
+        log_file = "./logs/aggregator.log"
+        Path("./logs").mkdir(parents=True, exist_ok=True)
+        
+        fh = logging.FileHandler(log_file)
+        fh.setLevel(logging.INFO)
+        
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        fh.setFormatter(formatter)
+        ch.setFormatter(formatter)
+        
+        if not self.logger.handlers:
+            self.logger.addHandler(fh)
+            self.logger.addHandler(ch)
     
     def aggregate(
         self,
@@ -426,6 +515,8 @@ class FednAggregator:
             
             aggregated_weights[key] = weighted_sum.astype(np.float32)
         
+        self.logger.info(f"FedAvg aggregation complete: {len(client_weights)} clients, {total_samples} total samples")
+        
         return aggregated_weights
     
     def _fedprox_aggregate(
@@ -450,6 +541,8 @@ class FednAggregator:
         for key in fedavg_weights.keys():
             correction = mu * (fedavg_weights[key] - global_weights[key])
             corrected_weights[key] = fedavg_weights[key] - correction
+        
+        self.logger.info("FedProx aggregation complete with proximal term")
         
         return corrected_weights
     
@@ -494,6 +587,8 @@ class FednAggregator:
         
         # Store new control variates
         self._last_control_variates = aggregated_control
+        
+        self.logger.info("SCAFFOLD aggregation complete with control variates")
         
         return aggregated_weights
     
@@ -606,19 +701,68 @@ class ExperimentLogger:
             self.logger.error(message)
 
 
+def create_synthetic_dataset(
+    n_samples: int = 1000,
+    n_features: int = 20,
+    n_attack_types: int = 15,
+    random_state: int = 42
+) -> Tuple[pd.DataFrame, np.ndarray, np.ndarray]:
+    """
+    Create a synthetic IoT dataset for testing.
+    Compatible with the main script's create_synthetic_dataset function.
+    
+    Args:
+        n_samples: Number of samples to generate
+        n_features: Number of features
+        n_attack_types: Number of attack types
+        random_state: Random seed
+        
+    Returns:
+        Tuple of (DataFrame, labels, attack_types)
+    """
+    np.random.seed(random_state)
+    
+    # Generate features
+    X = np.random.randn(n_samples, n_features) * 10
+    
+    # Generate labels (60% benign, 40% attack)
+    labels = np.random.choice([0, 1], size=n_samples, p=[0.4, 0.6])
+    
+    # Generate attack types
+    attack_types_list = [
+        'Benign', 'Backdoor_Malware', 'BrowserHijacking', 'CommandInjection',
+        'DDoS', 'DNS_Spoofing', 'DictionaryBruteForce', 'DoS', 'MITM',
+        'Mirai', 'Recon', 'SqlInjection', 'Uploading_Attack', 
+        'VulnerabilityScan', 'XSS'
+    ]
+    
+    attack_types = []
+    for label in labels:
+        if label == 0:
+            attack_types.append('Benign')
+        else:
+            attack_types.append(np.random.choice(attack_types_list[1:]))
+    
+    # Create DataFrame
+    feature_names = [f'feature_{i}' for i in range(n_features)]
+    df = pd.DataFrame(X, columns=feature_names)
+    
+    # Add some categorical features
+    df['protocol'] = np.random.choice(['TCP', 'UDP', 'HTTP', 'HTTPS', 'MQTT'], n_samples)
+    df['device_type'] = np.random.choice(['camera', 'thermostat', 'sensor', 'hub', 'printer'], n_samples)
+    
+    return df, np.array(labels), np.array(attack_types)
+
+
 def run_quick_experiment():
     """
-    Run a quick experiment to verify the implementation.
+    Run a quick experiment to verify the FEDn client implementation.
+    Uses local classes to ensure compatibility without requiring main script exports.
     """
-    from iot_federated_learning_with_amino_acid_encoding import (
-        create_synthetic_dataset,
-        FederatedServer,
-        FederatedClient,
-        CentralizedTrainer
-    )
+    from torch.utils.data import DataLoader, TensorDataset
     
     print("\n" + "="*60)
-    print("QUICK EXPERIMENT TEST")
+    print("FEDN CLIENT QUICK EXPERIMENT TEST")
     print("="*60)
     
     # Setup configuration
@@ -669,17 +813,11 @@ def run_quick_experiment():
     
     print(f"Dataset prepared: {len(X_train)} train, {len(X_test)} test samples")
     
-    # Test centralized training
-    print("\nTesting centralized training...")
-    centralized_trainer = CentralizedTrainer(config)
-    central_result = centralized_trainer.train(X_train, y_train, X_test, y_test)
-    print(f"Centralized Accuracy: {central_result['final_metrics']['accuracy']:.4f}")
+    # Test FEDn client training
+    print("\nTesting FEDnCompatibleClient...")
     
-    # Test federated learning
-    print("\nTesting federated learning...")
-    server = FederatedServer(config)
-    
-    # Create clients with equal data split
+    # Create clients
+    clients = []
     n_samples = len(X_train)
     client_size = n_samples // config.num_clients
     
@@ -687,25 +825,50 @@ def run_quick_experiment():
         start = i * client_size
         end = start + client_size if i < config.num_clients - 1 else n_samples
         
-        client = FederatedClient(
-            client_id=f"client_{i}",
+        client = FednCompatibleClient(
+            client_id=i,
             config=config,
             X_train=X_train[start:end],
             y_train=y_train[start:end]
         )
-        server.register_client(client)
+        clients.append(client)
+        print(f"  Created client {i} with {end - start} samples")
     
-    # Train federated
-    fed_result = server.train_federated(X_test, y_test)
-    print(f"Federated Accuracy: {fed_result['final_metrics']['accuracy']:.4f}")
+    # Train each client locally
+    print("\nTraining clients locally...")
+    for client in clients:
+        metrics = client.train(num_epochs=3, verbose=False)
+        print(f"  Client {client.client_id}: Loss={metrics['loss']:.4f}, Accuracy={metrics['accuracy']:.4f}")
+    
+    # Aggregate weights using FednAggregator
+    print("\nAggregating model weights...")
+    aggregator = FednAggregator(config)
+    
+    client_weights = [client.get_model_weights() for client in clients]
+    client_metrics = [
+        {'samples_processed': client.get_sample_count(), 'loss': 0.5}
+        for client in clients
+    ]
+    
+    aggregated_weights = aggregator.aggregate(client_weights, client_metrics, strategy='fedavg')
+    
+    # Set aggregated weights to first client and evaluate
+    clients[0].set_model_weights(aggregated_weights)
+    test_metrics = clients[0].evaluate(X_test, y_test)
+    
+    print(f"\nAggregated Model Test Metrics:")
+    print(f"  Accuracy: {test_metrics['accuracy']:.4f}")
+    print(f"  F1 Score: {test_metrics['f1']:.4f}")
+    print(f"  AUC-ROC: {test_metrics['auc_roc']:.4f}")
     
     print("\n" + "="*60)
-    print("QUICK EXPERIMENT COMPLETED")
+    print("FEDN CLIENT QUICK EXPERIMENT COMPLETED")
     print("="*60)
     
     return {
-        'centralized': central_result,
-        'federated': fed_result
+        'clients': len(clients),
+        'test_accuracy': test_metrics['accuracy'],
+        'test_f1': test_metrics['f1']
     }
 
 
