@@ -1,0 +1,266 @@
+{
+  "amino_acid": {
+    "centralized_no_encoding": {
+      "experiment_name": "centralized_no_encoding",
+      "distribution_type": "centralized",
+      "encoding_type": "none",
+      "num_clients": 1,
+      "final_metrics": {
+        "accuracy": 0.926,
+        "precision": 0.9262910798122066,
+        "recall": 0.926,
+        "f1": 0.9258406045781462,
+        "auc_roc": 0.9709333333333334,
+        "fpr": 0.10222222222222223,
+        "mcc": 0.8505260806397698
+      }
+    },
+    "centralized_amino_acid": {
+      "experiment_name": "centralized_amino_acid",
+      "distribution_type": "centralized",
+      "encoding_type": "amino_acid",
+      "num_clients": 1,
+      "final_metrics": {
+        "accuracy": 0.926,
+        "precision": 0.9263933088535291,
+        "recall": 0.926,
+        "f1": 0.9258198051948052,
+        "auc_roc": 0.9738585858585859,
+        "fpr": 0.10444444444444445,
+        "mcc": 0.8505988085257683
+      }
+    },
+    "fed_equal_iid_no_encoding": {
+      "experiment_name": "fed_equal_iid_no_encoding",
+      "distribution_type": "equal_iid",
+      "encoding_type": "none",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.928,
+        "precision": 0.9283010563380283,
+        "recall": 0.928,
+        "f1": 0.9278449125625204,
+        "auc_roc": 0.9721656565656566,
+        "fpr": 0.1,
+        "mcc": 0.8545839340779365,
+        "confusion_matrix": [
+          [
+            405,
+            45
+          ],
+          [
+            27,
+            523
+          ]
+        ]
+      }
+    },
+    "fed_equal_iid_amino_acid": {
+      "experiment_name": "fed_equal_iid_amino_acid",
+      "distribution_type": "equal_iid",
+      "encoding_type": "amino_acid",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.93,
+        "precision": 0.930220155998111,
+        "recall": 0.93,
+        "f1": 0.9298683079517993,
+        "auc_roc": 0.9748727272727273,
+        "fpr": 0.09555555555555556,
+        "mcc": 0.8585788303338125,
+        "confusion_matrix": [
+          [
+            407,
+            43
+          ],
+          [
+            27,
+            523
+          ]
+        ]
+      }
+    },
+    "fed_skewed_non_iid_no_encoding": {
+      "experiment_name": "fed_skewed_non_iid_no_encoding",
+      "distribution_type": "skewed_non_iid",
+      "encoding_type": "none",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.925,
+        "precision": 0.9249699624986347,
+        "recall": 0.925,
+        "f1": 0.9249765765000895,
+        "auc_roc": 0.9747878787878788,
+        "fpr": 0.08666666666666667,
+        "mcc": 0.8484085659053194,
+        "confusion_matrix": [
+          [
+            411,
+            39
+          ],
+          [
+            36,
+            514
+          ]
+        ]
+      }
+    },
+    "fed_skewed_non_iid_amino_acid": {
+      "experiment_name": "fed_skewed_non_iid_amino_acid",
+      "distribution_type": "skewed_non_iid",
+      "encoding_type": "amino_acid",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.902,
+        "precision": 0.9098370158210585,
+        "recall": 0.902,
+        "f1": 0.9006987555221899,
+        "auc_roc": 0.9718505050505051,
+        "fpr": 0.19111111111111112,
+        "mcc": 0.8083792060110052,
+        "confusion_matrix": [
+          [
+            364,
+            86
+          ],
+          [
+            12,
+            538
+          ]
+        ]
+      }
+    }
+  },
+  "none": {
+    "centralized_no_encoding": {
+      "experiment_name": "centralized_no_encoding",
+      "distribution_type": "centralized",
+      "encoding_type": "none",
+      "num_clients": 1,
+      "final_metrics": {
+        "accuracy": 0.986,
+        "precision": 0.9863475177304966,
+        "recall": 0.986,
+        "f1": 0.9859773617938732,
+        "auc_roc": 0.9933535353535353,
+        "fpr": 0.03111111111111111,
+        "mcc": 0.9720280116728908
+      }
+    },
+    "centralized_amino_acid": {
+      "experiment_name": "centralized_amino_acid",
+      "distribution_type": "centralized",
+      "encoding_type": "amino_acid",
+      "num_clients": 1,
+      "final_metrics": {
+        "accuracy": 0.987,
+        "precision": 0.9873001776198935,
+        "recall": 0.987,
+        "f1": 0.9869806559964184,
+        "auc_roc": 0.9944929292929292,
+        "fpr": 0.028888888888888888,
+        "mcc": 0.9740059477965233
+      }
+    },
+    "fed_equal_iid_no_encoding": {
+      "experiment_name": "fed_equal_iid_no_encoding",
+      "distribution_type": "equal_iid",
+      "encoding_type": "none",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.987,
+        "precision": 0.9873001776198935,
+        "recall": 0.987,
+        "f1": 0.9869806559964184,
+        "auc_roc": 0.9909737373737374,
+        "fpr": 0.028888888888888888,
+        "mcc": 0.9740059477965233,
+        "confusion_matrix": [
+          [
+            437,
+            13
+          ],
+          [
+            0,
+            550
+          ]
+        ]
+      }
+    },
+    "fed_equal_iid_amino_acid": {
+      "experiment_name": "fed_equal_iid_amino_acid",
+      "distribution_type": "equal_iid",
+      "encoding_type": "amino_acid",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.987,
+        "precision": 0.9873001776198935,
+        "recall": 0.987,
+        "f1": 0.9869806559964184,
+        "auc_roc": 0.9950262626262627,
+        "fpr": 0.028888888888888888,
+        "mcc": 0.9740059477965233,
+        "confusion_matrix": [
+          [
+            437,
+            13
+          ],
+          [
+            0,
+            550
+          ]
+        ]
+      }
+    },
+    "fed_skewed_non_iid_no_encoding": {
+      "experiment_name": "fed_skewed_non_iid_no_encoding",
+      "distribution_type": "skewed_non_iid",
+      "encoding_type": "none",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.986,
+        "precision": 0.9863475177304966,
+        "recall": 0.986,
+        "f1": 0.9859773617938732,
+        "auc_roc": 0.98989898989899,
+        "fpr": 0.03111111111111111,
+        "mcc": 0.9720280116728908,
+        "confusion_matrix": [
+          [
+            436,
+            14
+          ],
+          [
+            0,
+            550
+          ]
+        ]
+      }
+    },
+    "fed_skewed_non_iid_amino_acid": {
+      "experiment_name": "fed_skewed_non_iid_amino_acid",
+      "distribution_type": "skewed_non_iid",
+      "encoding_type": "amino_acid",
+      "num_clients": 5,
+      "final_metrics": {
+        "accuracy": 0.976,
+        "precision": 0.9770034843205575,
+        "recall": 0.976,
+        "f1": 0.9759274606347194,
+        "auc_roc": 0.9905898989898989,
+        "fpr": 0.05333333333333334,
+        "mcc": 0.9524099879429896,
+        "confusion_matrix": [
+          [
+            426,
+            24
+          ],
+          [
+            0,
+            550
+          ]
+        ]
+      }
+    }
+  }
+}
