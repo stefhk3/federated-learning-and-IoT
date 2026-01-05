@@ -24,6 +24,7 @@ import logging
 import hashlib
 import json
 import ipaddress
+import argparse
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, field
@@ -1836,14 +1837,54 @@ def create_synthetic_dataset(
     return df, np.array(labels), np.array(attack_types)
 
 
+def parse_arguments():
+    """
+    Parse command-line arguments.
+    
+    Returns:
+        argparse.Namespace: Parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description='IoT Attack Detection with Federated Learning and Amino Acid Encoding',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run all experiments (default behavior)
+  python iot_federated_learning_with_amino_acid_encoding.py
+  
+  # Run only non-encoded experiments
+  python iot_federated_learning_with_amino_acid_encoding.py --run-non-encoded-only
+        """
+    )
+    
+    parser.add_argument(
+        '--run-non-encoded-only',
+        action='store_true',
+        default=False,
+        help='Run only the non-encoded experiments (Centralized, Federated IID, Federated non-IID without amino acid encoding). Skips the encoded experiments.'
+    )
+    
+    return parser.parse_args()
+
+
 def main():
     """
     Main function to run all experiments.
     """
+    # Parse command-line arguments
+    args = parse_arguments()
+    
     print("\n" + "="*70)
     print("IoT ATTACK DETECTION WITH FEDERATED LEARNING AND AMINO ACID ENCODING")
     print("="*70)
     print(f"Experiment Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Display experiment mode
+    if args.run_non_encoded_only:
+        print("MODE: Running NON-ENCODED experiments only")
+    else:
+        print("MODE: Running ALL experiments (encoded and non-encoded)")
+    
     print("="*70 + "\n")
     
     # Initialize configuration
@@ -1943,7 +1984,12 @@ def main():
         # Run experiments
         all_results = {}
         
-        for encoding_name, (X_tr, X_te, y_tr, y_te) in datasets.items():
+        # Determine which encoding types to run based on command-line arguments
+        encodings_to_run = ['none'] if args.run_non_encoded_only else list(datasets.keys())
+        
+        for encoding_name in encodings_to_run:
+            X_tr, X_te, y_tr, y_te = datasets[encoding_name]
+            
             print(f"\n{'#'*70}")
             print(f"# EXPERIMENTS WITH {encoding_name.upper()} ENCODING")
             print(f"{'#'*70}")
@@ -1951,7 +1997,7 @@ def main():
             # Reset results for each encoding
             runner.results = {}
             
-            # Run all experiments
+            # Run all experiments for this encoding
             results = runner.run_all_experiments(X_tr, y_tr, X_te, y_te)
             all_results[encoding_name] = results
         
