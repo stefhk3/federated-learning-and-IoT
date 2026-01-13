@@ -1,0 +1,1 @@
+nohup ../../python ./iot_federated_learning_with_amino_acid_encoding_advNN.py --device cuda:0 --run-non-encoded-only --start-encoding none --start-experiment centralized_no_encoding >> nohup.out 2>&1 &
