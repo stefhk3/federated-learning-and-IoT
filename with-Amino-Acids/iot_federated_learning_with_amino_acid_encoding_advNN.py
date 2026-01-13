@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 IoT Attack Detection with Federated Learning and Amino Acid Encoding
 
@@ -979,13 +977,14 @@ class FederatedServer:
         with torch.no_grad():
             outputs = self.global_model(X_tensor)
             probabilities = F.softmax(outputs, dim=1)
+            probabilities_np = probabilities.detach().cpu().numpy()
             _, predictions = torch.max(outputs, 1)
             predictions = predictions.cpu().numpy()
         
         y_test_np = y_tensor.numpy()
         
         try:
-            auc = roc_auc_score(y_test_np, probabilities[:, 1].numpy())
+            auc = roc_auc_score(y_test_np, probabilities_np[:, 1])
         except:
             auc = 0.0
         
@@ -1146,13 +1145,14 @@ class CentralizedTrainer:
         with torch.no_grad():
             outputs = self.model(X_tensor)
             probabilities = F.softmax(outputs, dim=1)
+            probabilities_np = probabilities.detach().cpu().numpy()
             _, predictions = torch.max(outputs, 1)
             predictions = predictions.cpu().numpy()
         
         y_test_np = y_tensor.numpy()
         
         try:
-            auc = roc_auc_score(y_test_np, probabilities[:, 1].numpy())
+            auc = roc_auc_score(y_test_np, probabilities_np[:, 1])
         except:
             auc = 0.0
         
@@ -1505,6 +1505,7 @@ class ExperimentRunner:
         # Update config for this experiment
         self.config.distribution_type = distribution_type
         self.config.encoding_type = encoding_type
+        self.config.input_dim = X_train.shape[1]
         
         # Partition data
         partitioner = DataPartitioner(self.config)
@@ -1550,7 +1551,9 @@ class ExperimentRunner:
         X_train: np.ndarray,
         y_train: np.ndarray,
         X_test: np.ndarray,
-        y_test: np.ndarray
+        y_test: np.ndarray,
+        encoding_filter: EncodingType = None,
+        start_experiment: str = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Run all experiments as specified by supervisors.
@@ -1604,6 +1607,24 @@ class ExperimentRunner:
             },
         ]
         
+        if encoding_filter is not None:
+            experiments = [
+                exp for exp in experiments if exp['encoding'] == encoding_filter
+            ]
+
+        if start_experiment:
+            start_index = next(
+                (i for i, exp in enumerate(experiments) if exp['name'] == start_experiment),
+                None
+            )
+            if start_index is not None:
+                experiments = experiments[start_index:]
+            else:
+                logging.warning(
+                    "start_experiment '%s' not found for current encoding filter; running all.",
+                    start_experiment
+                )
+
         # Run each experiment
         for exp_config in experiments:
             result = self.run_single_experiment(
@@ -1863,6 +1884,36 @@ Examples:
         default=False,
         help='Run only the non-encoded experiments (Centralized, Federated IID, Federated non-IID without amino acid encoding). Skips the encoded experiments.'
     )
+
+    parser.add_argument(
+        '--start-encoding',
+        type=str,
+        choices=['none', 'amino_acid'],
+        default=None,
+        help='Resume from a specific encoding section (none or amino_acid).'
+    )
+
+    parser.add_argument(
+        '--start-experiment',
+        type=str,
+        choices=[
+            'centralized_no_encoding',
+            'centralized_amino_acid',
+            'fed_equal_iid_no_encoding',
+            'fed_equal_iid_amino_acid',
+            'fed_skewed_non_iid_no_encoding',
+            'fed_skewed_non_iid_amino_acid',
+        ],
+        default=None,
+        help='Resume from a specific experiment name (skips earlier experiments in that encoding section).'
+    )
+
+    parser.add_argument(
+        '--device',
+        type=str,
+        default='auto',
+        help='Device to use: "auto", "cpu", "cuda", or "cuda:<index>"'
+    )
     
     return parser.parse_args()
 
@@ -1884,6 +1935,16 @@ def main():
         print("MODE: Running NON-ENCODED experiments only")
     else:
         print("MODE: Running ALL experiments (encoded and non-encoded)")
+
+    if args.device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        device = args.device
+        if device.startswith("cuda") and not torch.cuda.is_available():
+            print("WARNING: CUDA requested but not available, falling back to CPU.")
+            device = "cpu"
+
+    print(f"DEVICE: {device}")
     
     print("="*70 + "\n")
     
@@ -1899,7 +1960,8 @@ def main():
         input_dim=10,
         hidden_dims=[64, 32],
         output_dim=2,
-        skewness_factor=0.5
+        skewness_factor=0.5,
+        device=device
     )
     
     # Create experiment runner
@@ -1986,7 +2048,22 @@ def main():
         
         # Determine which encoding types to run based on command-line arguments
         encodings_to_run = ['none'] if args.run_non_encoded_only else list(datasets.keys())
+
+        if args.start_encoding:
+            if args.start_encoding in encodings_to_run:
+                start_index = encodings_to_run.index(args.start_encoding)
+                encodings_to_run = encodings_to_run[start_index:]
+            else:
+                print(
+                    f"WARNING: start-encoding '{args.start_encoding}' not in selected encodings; "
+                    "ignoring resume encoding."
+                )
         
+        encoding_map = {
+            'none': EncodingType.NONE,
+            'amino_acid': EncodingType.AMINO_ACID
+        }
+
         for encoding_name in encodings_to_run:
             X_tr, X_te, y_tr, y_te = datasets[encoding_name]
             
@@ -1997,8 +2074,13 @@ def main():
             # Reset results for each encoding
             runner.results = {}
             
-            # Run all experiments for this encoding
-            results = runner.run_all_experiments(X_tr, y_tr, X_te, y_te)
+            # Run experiments for this encoding
+            start_experiment = args.start_experiment if encoding_name == args.start_encoding else None
+            results = runner.run_all_experiments(
+                X_tr, y_tr, X_te, y_te,
+                encoding_filter=encoding_map[encoding_name],
+                start_experiment=start_experiment
+            )
             all_results[encoding_name] = results
         
         # Generate report
