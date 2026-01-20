@@ -65,6 +65,41 @@ from Bio.SeqUtils.ProtParam import ProteinAnalysis
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+def compute_classification_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_prob: Optional[np.ndarray] = None
+) -> Dict[str, Any]:
+    """
+    Compute all classification metrics reported in the paper.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+
+    try:
+        auc = roc_auc_score(y_true, y_prob[:, 1]) if y_prob is not None else 0.0
+    except:
+        auc = 0.0
+
+    try:
+        mcc = matthews_corrcoef(y_true, y_pred)
+    except:
+        mcc = 0.0
+
+    return {
+        'accuracy': accuracy_score(y_true, y_pred),
+        'precision': precision_score(y_true, y_pred, average='weighted', zero_division=0),
+        'recall': recall_score(y_true, y_pred, average='weighted', zero_division=0),
+        'f1': f1_score(y_true, y_pred, average='weighted', zero_division=0),
+        'auc_roc': auc,
+        'fpr': fpr,
+        'mcc': mcc,
+        'confusion_matrix': cm.tolist()
+    }
+
+
 # Configuration
 plt.style.use('seaborn-v0_8')
 plt.rcParams['figure.figsize'] = (12, 8)
@@ -737,38 +772,6 @@ class FederatedClient:
         """Set model weights from server."""
         self.model.set_weights(weights)
     
-    def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, float]:
-        """
-        Evaluate model on test data.
-        
-        Args:
-            X_test: Test features
-            y_test: Test labels
-            
-        Returns:
-            Dictionary of evaluation metrics
-        """
-        self.model.eval()
-        
-        X_tensor = torch.FloatTensor(X_test).to(self.config.device)
-        y_tensor = torch.LongTensor(y_test)
-        
-        with torch.no_grad():
-            outputs = self.model(X_tensor)
-            _, predictions = torch.max(outputs, 1)
-            predictions = predictions.cpu().numpy()
-        
-        y_test_np = y_test.numpy() if isinstance(y_test, torch.Tensor) else y_test
-        
-        metrics = {
-            'accuracy': accuracy_score(y_test_np, predictions),
-            'precision': precision_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'recall': recall_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'f1': f1_score(y_test_np, predictions, average='weighted', zero_division=0)
-        }
-        
-        return metrics
-    
     def get_sample_count(self) -> int:
         """Get number of training samples."""
         return len(self.X_train)
@@ -976,38 +979,18 @@ class FederatedServer:
         
         with torch.no_grad():
             outputs = self.global_model(X_tensor)
-            probabilities = F.softmax(outputs, dim=1)
-            probabilities_np = probabilities.detach().cpu().numpy()
+            probabilities = F.softmax(outputs, dim=1).cpu().numpy()
             _, predictions = torch.max(outputs, 1)
             predictions = predictions.cpu().numpy()
         
-        y_test_np = y_tensor.numpy()
+        y_true = y_tensor.cpu().numpy()
         
-        try:
-            auc = roc_auc_score(y_test_np, probabilities_np[:, 1])
-        except:
-            auc = 0.0
-        
-        cm = confusion_matrix(y_test_np, predictions)
-        tn, fp, fn, tp = cm.ravel()
-        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-        
-        try:
-            mcc = matthews_corrcoef(y_test_np, predictions)
-        except:
-            mcc = 0.0
-        
-        metrics = {
-            'accuracy': accuracy_score(y_test_np, predictions),
-            'precision': precision_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'recall': recall_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'f1': f1_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'auc_roc': auc,
-            'fpr': fpr,
-            'mcc': mcc,
-            'confusion_matrix': cm.tolist()
-        }
-        
+        metrics = compute_classification_metrics(
+            y_true=y_true,
+            y_pred=predictions,
+            y_prob=probabilities
+        )
+                
         return metrics
 
 
@@ -1144,36 +1127,18 @@ class CentralizedTrainer:
         
         with torch.no_grad():
             outputs = self.model(X_tensor)
-            probabilities = F.softmax(outputs, dim=1)
-            probabilities_np = probabilities.detach().cpu().numpy()
+            probabilities = F.softmax(outputs, dim=1).cpu().numpy()
             _, predictions = torch.max(outputs, 1)
             predictions = predictions.cpu().numpy()
         
-        y_test_np = y_tensor.numpy()
+        y_true = y_tensor.cpu().numpy()
         
-        try:
-            auc = roc_auc_score(y_test_np, probabilities_np[:, 1])
-        except:
-            auc = 0.0
-        
-        cm = confusion_matrix(y_test_np, predictions)
-        tn, fp, fn, tp = cm.ravel()
-        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-        
-        try:
-            mcc = matthews_corrcoef(y_test_np, predictions)
-        except:
-            mcc = 0.0
-        
-        return {
-            'accuracy': accuracy_score(y_test_np, predictions),
-            'precision': precision_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'recall': recall_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'f1': f1_score(y_test_np, predictions, average='weighted', zero_division=0),
-            'auc_roc': auc,
-            'fpr': fpr,
-            'mcc': mcc
-        }
+        return compute_classification_metrics(
+            y_true=y_true,
+            y_pred=predictions,
+            y_prob=probabilities
+        )
+
 
 
 class IoTIntrusionDataset:
